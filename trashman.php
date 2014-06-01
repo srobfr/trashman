@@ -33,7 +33,7 @@ $dryRun = array_key_exists('dry-run', $args);
 
 $mountFolders = getMountFolders();
 
-// TODO suppression effective des fichiers
+// Suppression effective des fichiers
 if (array_key_exists('free', $args) && preg_match('~^([\d]+)%$~', $args['free'], $m)) {
     $amountToFree = getAmountToFree(intval($m[1]));
     $paths = $arguments->getInvalidArguments();
@@ -59,7 +59,7 @@ if (array_key_exists('free', $args) && preg_match('~^([\d]+)%$~', $args['free'],
         echo human_filesize($amountToFree[$mountPath]) . " seront libérés sur '$mountPath'.\n";
         
         // On va trouver les fichiers à supprimer, jusqu'à la taille voulue.
-        // TODO
+        doDelete(preg_replace('~^//~', '/', $mountPath . '/.trashman'), $amountToFree[$mountPath]);
     }
     
     exit(0);
@@ -74,13 +74,15 @@ foreach($arguments->getInvalidArguments() as $path) {
     
     $path = realpath($path);
 
+    // TODO gérer le cas d'une cible dossier !
+    
     $mountPath = getMountPath($path, $mountFolders);
     if($mountPath === '/') $mountPath = '';
-    $trashPath = $mountPath . "/tmp/.trashman/" . $prio . '/' . $date . $path;
+    $trashPath = $mountPath . "/.trashman/" . $prio . '/' . $date . $path;
     $trashDirPath = dirname($trashPath);
     
     // On tente de créer le dossier.
-    if (!$dryRun && !file_exists($trashDirPath) && !mkdir($trashDirPath, 0700, true)) {
+    if (!$dryRun && !is_dir($trashDirPath) && !mkdir($trashDirPath, 0700, true)) {
         echo "Erreur à la création du dossier : " . $trashDirPath . "\n";
         exit(1);
     }
@@ -107,6 +109,60 @@ foreach($arguments->getInvalidArguments() as $path) {
         
         echo $path . " déplacé. (prio=$prio)\n";
     }
+}
+
+/**
+ * Supprime le contenu du dossier, dans l'ordre alphabétique, jusqu'à ce que le nombre d'octets donné soit atteint.
+ * @param string $path
+ * @param integer $amount
+ */
+function doDelete($path, $amount) {
+    if(is_dir($path)) {
+        // On scanne le contenu du dossier
+        $scan = scandir($path, SCANDIR_SORT_ASCENDING);
+        if(count($scan) === 2) {
+            rmdir($path);
+            return $amount;
+        }
+        
+        if($amount <= 0) return $amount;
+        
+        foreach($scan as $subPath) {
+            if(preg_match('~^\.{1,2}$~', $subPath)) continue;
+            $amount = doDelete($path . '/' . $subPath, $amount);
+            if($amount <= 0) return $amount;
+        }
+        
+        // Si le dossier est vide après suppression, on le supprime.
+        $scan = scandir($path, SCANDIR_SORT_ASCENDING);
+        if(count($scan) === 2) {
+            rmdir($path);
+        }
+
+    } elseif(is_link($path)) {
+        // On supprime la cible du lien symbolique
+        $target = readlink($path);
+        if($target === false) {
+            // Lien cassé, on supprime le lien symbolique.
+            unlink($path);
+        }
+        
+        if($amount <= 0) return $amount;
+
+        $amount = doDelete($target, $amount);
+        unlink($path);
+
+    } elseif (is_file($path)) {
+        if($amount <= 0) return $amount;
+        $amount -= filesize($path);
+        unlink($path);
+    } else {
+        echo "Type non reconnu : $path\n";
+    }
+    
+    echo "Suppression de : " . $path . " ($amount)\n";
+    
+    return $amount;
 }
 
 function human_filesize($bytes, $decimals = 2) {
