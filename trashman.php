@@ -35,7 +35,10 @@ $mountFolders = getMountFolders();
 
 // TODO suppression effective des fichiers
 if (array_key_exists('free', $args) && preg_match('~^([\d]+)%$~', $args['free'], $m)) {
-    foreach($arguments->getInvalidArguments() as $path) {
+    $amountToFree = getAmountToFree(intval($m[1]));
+    $paths = $arguments->getInvalidArguments();
+    if(count($paths) === 0) $paths = array_keys ($amountToFree);
+    foreach($paths as $path) {
         if (!file_exists($path)) {
             echo $path . " n'existe pas !\n";
             continue;
@@ -44,10 +47,19 @@ if (array_key_exists('free', $args) && preg_match('~^([\d]+)%$~', $args['free'],
         $path = realpath($path);
         
         $mountPath = getMountPath($path, $mountFolders);
-        if($mountPath === '/') $mountPath = '';
         
         // On va libérer de l'espace sur le montage $mountPath
+        if(!array_key_exists($mountPath, $amountToFree)) {
+            echo "Impossible de déterminer d'espace libre du montage $mountPath\n";
+            exit(5);
+        }
         
+        if($amountToFree[$mountPath] === 0) continue;
+        
+        echo human_filesize($amountToFree[$mountPath]) . " seront libérés sur '$mountPath'.\n";
+        
+        // On va trouver les fichiers à supprimer, jusqu'à la taille voulue.
+        // TODO
     }
     
     exit(0);
@@ -95,6 +107,31 @@ foreach($arguments->getInvalidArguments() as $path) {
         
         echo $path . " déplacé. (prio=$prio)\n";
     }
+}
+
+function human_filesize($bytes, $decimals = 2) {
+    $size = array('o','ko','Mo','Go','To','Po','Eo','Zo','Yo');
+    $factor = floor((strlen($bytes) - 1) / 3);
+    return sprintf("%.{$decimals}f", $bytes / pow(1024, $factor)) . @$size[$factor];
+}
+
+/**
+ * Retourne la quantité d'octets à libérer pour attendre le pourcentage donné.
+ * @param integer $maxUsedPc
+ * @param array $mountFolders
+ */
+function getAmountToFree($maxUsedPc) {
+    preg_match_all('~([\d]+)\s+([\d]+)\s+[\d]+%\s+(.*?)$~m', shell_exec('df'), $m);
+    $r = array();
+    foreach($m[3] as $k => $mount) {
+        $used = $m[1][$k] * 1000;
+        $free = $m[2][$k] * 1000;
+        $total = $used + $free;
+        
+        $r[$mount] = max(0, $used - $total * ($maxUsedPc / 100));
+    }
+    
+    return $r;
 }
 
 /**
