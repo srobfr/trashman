@@ -1,6 +1,6 @@
 {
     "name": "srob",
     "require": {
-        "symfony/console": "2.6.*@dev"
+        "wp-cli/php-cli-tools": "dev-master"
     }
 }
