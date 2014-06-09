@@ -1,6 +1,14 @@
 <?php
 require __DIR__ . '/vendor/autoload.php';
 
+function getTrashmanFolderPath($mountPath) {
+    if(is_writable($mountPath)) {
+        return $mountPath . '/.trashman';
+    } else {
+        return $_SERVER['HOME'] . '/.trashman/' . md5($mountPath);
+    }
+}
+
 $arguments = new \cli\Arguments();
 
 $arguments->addFlag(array('help', 'h'), "Affiche cet écran d'aide");
@@ -31,6 +39,10 @@ $prio = str_pad($prio, 4, '0', STR_PAD_LEFT);
 $date = date('Y-m-d_H-i-s.') . str_replace(time() . '.', '', microtime(true));
 $dryRun = array_key_exists('dry-run', $args);
 
+if($dryRun) {
+    echo "Mode DRY-RUN - Aucune modification ne sera effectuée.\n";
+}
+
 $mountFolders = getMountFolders();
 
 // Suppression effective des fichiers
@@ -54,12 +66,22 @@ if (array_key_exists('free', $args) && preg_match('~^([\d]+)%$~', $args['free'],
             exit(5);
         }
         
-        if($amountToFree[$mountPath] === 0) continue;
-        
-        echo human_filesize($amountToFree[$mountPath]) . " seront libérés sur '$mountPath'.\n";
+        if($amountToFree[$mountPath] === 0) {
+            continue;
+        }
+
+        echo "Nettoyage du montage '" . $mountPath . "' ...\n";
         
         // On va trouver les fichiers à supprimer, jusqu'à la taille voulue.
-        doDelete(preg_replace('~^//~', '/', $mountPath . '/.trashman'), $amountToFree[$mountPath]);
+        $trashmanFolder = preg_replace('~^//~', '/', getTrashmanFolderPath($mountPath));
+        $amount = $amountToFree[$mountPath];
+        if(file_exists($trashmanFolder)) {
+            $amount = doDelete($trashmanFolder, $amountToFree[$mountPath]);
+        }
+
+        if($amount > 0) {
+            echo "Impossible de libérer suffisament de place ! (reste " . humanFilesize($amount). " à supprimer)\n";
+        }
     }
     
     exit(0);
@@ -73,12 +95,9 @@ foreach($arguments->getInvalidArguments() as $path) {
     }
     
     $path = realpath($path);
-
-    // TODO gérer le cas d'une cible dossier !
-    
     $mountPath = getMountPath($path, $mountFolders);
     if($mountPath === '/') $mountPath = '';
-    $trashPath = $mountPath . "/.trashman/" . $prio . '/' . $date . $path;
+    $trashPath = getTrashmanFolderPath($mountPath) . "/" . $prio . '/' . $date . $path;
     $trashDirPath = dirname($trashPath);
     
     // On tente de créer le dossier.
@@ -117,11 +136,35 @@ foreach($arguments->getInvalidArguments() as $path) {
  * @param integer $amount
  */
 function doDelete($path, $amount) {
-    if(is_dir($path)) {
+    global $dryRun;
+
+    if(is_link($path)) {
+        // On supprime la cible du lien symbolique
+        $target = readlink($path);
+        if($target === false || !file_exists($target)) {
+            // Lien cassé, on supprime le lien symbolique.
+            if(!$dryRun && !unlink($path)) {
+                echo "Unable to remove broken link " . $path . "\n";
+                exit(9);
+            }
+        }
+
+        if($amount <= 0) return $amount;
+
+        if($target !== false && file_exists($target)) {
+            $amount = doDelete($target, $amount);
+        }
+
+        if(!$dryRun && !unlink($path)) {
+            echo "Unable to remove link " . $path . "\n";
+            exit(6);
+        }
+
+    } elseif(is_dir($path)) {
         // On scanne le contenu du dossier
         $scan = scandir($path, SCANDIR_SORT_ASCENDING);
         if(count($scan) === 2) {
-            rmdir($path);
+            if(!$dryRun) rmdir($path);
             return $amount;
         }
         
@@ -136,36 +179,33 @@ function doDelete($path, $amount) {
         // Si le dossier est vide après suppression, on le supprime.
         $scan = scandir($path, SCANDIR_SORT_ASCENDING);
         if(count($scan) === 2) {
-            rmdir($path);
-        }
 
-    } elseif(is_link($path)) {
-        // On supprime la cible du lien symbolique
-        $target = readlink($path);
-        if($target === false) {
-            // Lien cassé, on supprime le lien symbolique.
-            unlink($path);
+            if(!$dryRun && !rmdir($path)) {
+                echo "Unable to remove folder " . $path . "\n";
+                exit(8);
+            }
         }
-        
-        if($amount <= 0) return $amount;
-
-        $amount = doDelete($target, $amount);
-        unlink($path);
 
     } elseif (is_file($path)) {
         if($amount <= 0) return $amount;
+        
+        echo "Encore " . humanFilesize($amount)." à libérer. Suppression de : " . $path . "\n";
         $amount -= filesize($path);
-        unlink($path);
+
+        if(!$dryRun && !unlink($path)) {
+            echo "Unable to remove file " . $path . "\n";
+            exit(7);
+        }
     } else {
         echo "Type non reconnu : $path\n";
     }
     
-    echo "Suppression de : " . $path . " ($amount)\n";
+    
     
     return $amount;
 }
 
-function human_filesize($bytes, $decimals = 2) {
+function humanFilesize($bytes, $decimals = 2) {
     $size = array('o','ko','Mo','Go','To','Po','Eo','Zo','Yo');
     $factor = floor((strlen($bytes) - 1) / 3);
     return sprintf("%.{$decimals}f", $bytes / pow(1024, $factor)) . @$size[$factor];
