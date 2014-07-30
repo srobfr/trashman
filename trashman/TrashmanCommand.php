@@ -60,10 +60,10 @@ class TrashmanCommand extends Command
                         'priority', '-p', InputOption::VALUE_OPTIONAL,
                         "Priorité de la suppression. 1: à supprimer en premier, 10 : a supprimer en dernier.", 5
                 )
-                ->addOption(
-                        'list', '-l', InputOption::VALUE_NONE,
-                        "Affiche les chemins qui peuvent être supprimés, avec la taille totale."
-                )
+//                ->addOption(
+//                        'list', '-l', InputOption::VALUE_NONE,
+//                        "Affiche les chemins qui peuvent être supprimés, avec la taille totale."
+//                )
                 ->addOption(
                         'free', '-f', InputOption::VALUE_OPTIONAL,
                         "Libère de l'espace disque sur les systèmes de fichiers correspondants aux chemins donnés.
@@ -85,7 +85,7 @@ Les formats possibles sont :
         $this->out = $output;
 
         if($input->getOption('free')) {
-            return $this->free($input, $output);
+            return $this->free();
         }
 
         if(count($input->getArgument('paths')) === 0) {
@@ -117,7 +117,7 @@ Les formats possibles sont :
             if(preg_match('~^(\d+)%$~', $this->in->getOption('free'), $m)) {
                 $used = $mountFolders[$mountPath]['used'];
                 $total = $mountFolders[$mountPath]['total'];
-                $toFree = max(0, $used - $total * ($m[1] / 100));
+                $toFree = max(0, intval($used - $total * ($m[1] / 100)));
 
             } elseif (preg_match('~^(\d+)([KMGT]?)$~', $this->in->getOption('free'), $m)) {
                 $multipl = array('K' => 1024, 'M' => 1024 * 1024, 'G' => 1024 * 1024 * 1024,
@@ -140,21 +140,14 @@ Les formats possibles sont :
                 continue;
             }
 
-            // On supprime autant de fichiers que nécessaire.
-            if(!array_key_exists($mountPath, $toFree)) {
-                $this->out->writeln("<fg=red>Impossible de déterminer l'espace libre du montage $mountPath</fg=red>");
-                continue;
-            }
-
             // On va trouver les fichiers à supprimer, jusqu'à la taille voulue.
             $trashmanFolder = preg_replace('~^//~', '/', $this->getTrashmanFolderPath($mountPath));
-            $amount = $toFree;
             if(file_exists($trashmanFolder)) {
-                $amount = $this->doDelete($trashmanFolder, $toFree[$mountPath]);
+                $toFree = $this->doDelete($trashmanFolder, $toFree);
             }
 
-            if($amount > 0) {
-                echo "Impossible de libérer suffisament de place ! (reste " . humanFilesize($amount). " à supprimer)\n";
+            if($toFree > 0) {
+                $this->out->writeln("<fg=red>Impossible de libérer suffisament de place ! (reste " . humanFilesize($toFree). " à supprimer)</fg=red>");
             }
         }
     }
@@ -274,7 +267,7 @@ Les formats possibles sont :
 
             $trashmanFolderPath = $this->getTrashmanFolderPath($mountPath);
             if(!array_key_exists($trashmanFolderPath, $trashManFoldersContent)) {
-                $trashManFoldersContent[$trashmanFolderPath] = shell_exec('find -type f');
+                $trashManFoldersContent[$trashmanFolderPath] = shell_exec('find ' .  escapeshellarg($trashmanFolderPath). ' -type f');
             }
 
             $trashPath = $this->getTrashmanFolderPath($mountPath) . "/" . $prio . '/' . $date . $path;
@@ -291,15 +284,16 @@ Les formats possibles sont :
 
             if ($this->in->getOption('keep')) {
                 // On crée un lien vers ce fichier, pour suppression ultérieure.
-                if(!$dryRun) {
-
-                    $delayedRemovalFile = $trashPath . '.trashmanDelayedRemoval';
-                    if(!preg_match("~".preg_quote($delayedRemovalFile)."$~m", $trashManFoldersContent[$trashmanFolderPath])) {
+                $delayedRemovalFile = $trashPath . '.trashmanDelayedRemoval';
+                $reg = "~".preg_quote($path . '.trashmanDelayedRemoval')."$~m";
+                if(!preg_match($reg, $trashManFoldersContent[$trashmanFolderPath])) {
+                    if(!$dryRun) {
                         file_put_contents($delayedRemovalFile, $path);
-                        $this->out->writeln("<fg=yellow>$path</fg=yellow> marqué pour suppression avec la priorité <fg=blue>$prio</fg=blue>");
-                    } else {
-                        $this->out->writeln("<fg=yellow>$path</fg=yellow> déjà marqué pour suppression.");
                     }
+
+                    $this->out->writeln("<fg=yellow>$path</fg=yellow> marqué pour suppression avec la priorité <fg=blue>$prio</fg=blue>");
+                } else {
+                    $this->out->writeln("<fg=yellow>$path</fg=yellow> déjà marqué pour suppression.");
                 }
             } else {
                 // On déplace le fichier.
