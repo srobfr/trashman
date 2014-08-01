@@ -114,28 +114,29 @@ Les formats possibles sont :
             $mountPath = $this->getMountPath($path);
             // On détermine combien d'espace est demandé.
             $toFree = null;
+            $m = array();
             if(preg_match('~^(\d+)%$~', $this->in->getOption('free'), $m)) {
                 $used = $mountFolders[$mountPath]['used'];
                 $total = $mountFolders[$mountPath]['total'];
-                $toFree = max(0, intval($used - $total * ($m[1] / 100)));
-
+                $toFree = $this->bcmax('0', bcsub($used, bcdiv(bcmul($total, $m[1]), '100')));
+                
             } elseif (preg_match('~^(\d+)([KMGT]?)$~', $this->in->getOption('free'), $m)) {
-                $multipl = array('K' => 1024, 'M' => 1024 * 1024, 'G' => 1024 * 1024 * 1024,
-                    'T' => 1024 * 1024 * 1024 * 1024);
+                $multipl = array('K' => '1024', 'M' => bcpow('1024', '2'), 'G' => bcpow('1024', '3'),
+                    'T' => bcpow('1024', '4'));
 
-                $toFree = intval($m[1]);
+                $toFree = $m[1];
                 if (!empty($m[2])) {
-                    $toFree *= $multipl[$m[2]];
+                    $toFree = bcmul($toFree, $multipl[$m[2]]);
                 }
             } else {
                 throw new Exception("Impossible de déterminer l'espace à récupérer. : " . $this->in->getOption('free'));
             }
-
+            
             if(OutputInterface::VERBOSITY_VERBOSE <= $this->out->getVerbosity()) {
                 $this->out->writeln("Point de montage <comment>" . $mountPath . "</comment> : <info>" . $this->humanFilesize($toFree) . "</info> à libérer.");
             }
 
-            if($toFree === 0) {
+            if($toFree === '0') {
                 // Rien à libérer sur ce montage.
                 continue;
             }
@@ -146,16 +147,34 @@ Les formats possibles sont :
                 $toFree = $this->doDelete($trashmanFolder, $toFree);
             }
 
-            if($toFree > 0) {
-                $this->out->writeln("<fg=red>Impossible de libérer suffisament de place ! (reste " . humanFilesize($toFree). " à supprimer)</fg=red>");
+            if($toFree !== '0') {
+                $this->out->writeln("<fg=red>Impossible de libérer suffisament de place ! (reste :" . $this->humanFilesize($toFree). " à supprimer)</fg=red>");
             }
         }
     }
 
     /**
+     *
+     * @return string
+     */
+    private function bcmax()
+    {
+        $args = func_get_args();
+        if (count($args) == 0)
+            return false;
+        $max = $args[0];
+        foreach ($args as $value) {
+            if (bccomp($value, $max) == 1) {
+                $max = $value;
+            }
+        }
+        return $max;
+    }
+
+    /**
     * Supprime le contenu du dossier, dans l'ordre alphabétique, jusqu'à ce que le nombre d'octets donné soit atteint.
     * @param string $path
-    * @param integer $amount
+    * @param string $amount
     */
     private function doDelete($path, $amount) {
         $dryRun = $this->in->getOption('dry-run');
@@ -170,7 +189,7 @@ Les formats possibles sont :
                 }
             }
 
-            if ($amount <= 0) {
+            if ($this->bcmax('0', $amount) === '0') {
                 return $amount;
             }
 
@@ -192,7 +211,7 @@ Les formats possibles sont :
                 return $amount;
             }
 
-            if ($amount <= 0) {
+            if ($this->bcmax('0', $amount) === '0') {
                 return $amount;
             }
 
@@ -202,7 +221,7 @@ Les formats possibles sont :
                 }
 
                 $amount = $this->doDelete($path . '/' . $subPath, $amount);
-                if ($amount <= 0) {
+                if ($this->bcmax('0', $amount) === '0') {
                     return $amount;
                 }
             }
@@ -214,12 +233,12 @@ Les formats possibles sont :
             }
 
         } elseif (is_file($path)) {
-            if ($amount <= 0) {
+            if ($this->bcmax('0', $amount) === '0') {
                 return $amount;
             }
 
             $this->out->writeln("Encore <fg=green>" . $this->humanFilesize($amount) . "</fg=green> à libérer. Suppression de <fg=yellow>" . $path . "</fg=yellow>");
-            $amount -= filesize($path);
+            $amount = bcsub($amount, trim(shell_exec("stat -c%s " . escapeshellarg($path))));
 
             if (!$dryRun && !unlink($path)) {
                 $this->out->writeln("<fg=red>Impossible de supprimer le fichier $path</fg=red>");
@@ -363,7 +382,7 @@ Les formats possibles sont :
 
     /**
      * Retourne un entier en valeur lisible.
-     * @param integer $bytes
+     * @param string $bytes
      * @param integer $decimals
      * @return string
      */
@@ -371,7 +390,7 @@ Les formats possibles sont :
     {
         $size = array('', 'K', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y');
         $factor = floor((strlen($bytes) - 1) / 3);
-        return sprintf("%.{$decimals}f", $bytes / pow(1024, $factor)) . @$size[$factor];
+        return bcdiv($bytes, bcpow('1024', strval($factor)), $decimals) . @$size[$factor];
     }
 
 }
