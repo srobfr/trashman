@@ -136,7 +136,7 @@ Les formats possibles sont :
                 $this->out->writeln("Point de montage <comment>" . $mountPath . "</comment> : <info>" . $this->humanFilesize($toFree) . "</info> à libérer.");
             }
 
-            if($toFree === '0') {
+            if ($this->bcmax('0', $toFree) === '0') {
                 // Rien à libérer sur ce montage.
                 continue;
             }
@@ -147,7 +147,7 @@ Les formats possibles sont :
                 $toFree = $this->doDelete($trashmanFolder, $toFree);
             }
 
-            if($toFree !== '0') {
+            if ($this->bcmax('0', $toFree) !== '0') {
                 $this->out->writeln("<fg=red>Impossible de libérer suffisament de place ! (reste :" . $this->humanFilesize($toFree). " à supprimer)</fg=red>");
             }
         }
