@@ -1,3 +1,4 @@
+#!/bin/php
 <?php
 /**
  * Trashman - a simple delayed files removal utility.
