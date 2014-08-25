@@ -278,7 +278,7 @@ Les formats possibles sont :
         if(!is_writeable(dirname($path))) {
             // Pas les permissions pour écrire ici.
             // On passe en mode dégradé, en stockant ces infos de le dossier home du user.
-            $path = $_ENV['HOME'] . '/.trashman';
+            $path = getenv('HOME') . '/.trashman';
         }
 
         return $path;
