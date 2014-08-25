@@ -278,7 +278,7 @@ Les formats possibles sont :
         if(!is_writeable(dirname($path))) {
             // Pas les permissions pour écrire ici.
             // On passe en mode dégradé, en stockant ces infos de le dossier home du user.
-            $path = getenv('HOME') . '/.trashman';
+            $path = getenv('HOME') . '/.trashman/' . md5($mountPath);
         }
 
         return $path;
@@ -329,7 +329,7 @@ Les formats possibles sont :
             if ($this->in->getOption('keep')) {
                 // On crée un lien vers ce fichier, pour suppression ultérieure.
                 $delayedRemovalFile = $trashPath . '.trashmanDelayedRemoval';
-                $reg = "~".preg_quote($path . '.trashmanDelayedRemoval')."$~m";
+                $reg = "~".preg_quote($path . '.trashmanDelayedRemoval', '~')."$~m";
                 if(!preg_match($reg, $trashManFoldersContent[$trashmanFolderPath])) {
                     if(!$dryRun) {
                         file_put_contents($delayedRemovalFile, $path);
