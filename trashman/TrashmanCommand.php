@@ -274,7 +274,14 @@ Les formats possibles sont :
      * @return string
      */
     private function getTrashmanFolderPath($mountPath) {
-        return $mountPath . '/.trashman';
+        $path = $mountPath . '/.trashman';
+        if(!is_writeable(dirname($path))) {
+            // Pas les permissions pour écrire ici.
+            // On passe en mode dégradé, en stockant ces infos de le dossier home du user.
+            $path = $_ENV['HOME'] . '/.trashman';
+        }
+
+        return $path;
     }
 
     /**
