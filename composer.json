@@ -1,6 +1,7 @@
 {
     "name": "srob",
     "require": {
-        "symfony/console": "2.3.*@dev"
+        "symfony/console": "2.3.*@dev",
+        "symfony/yaml": "*"
     }
 }
