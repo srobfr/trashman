@@ -102,7 +102,7 @@ class Database
     public static function getNextPathToDelete($mountPath) {
         static $result = null;
         if($result === null) {
-            $stmt = self::getDb($mountPath)->prepare("SELECT path FROM Paths WHERE mount = :mount ORDER BY priority ASC");
+            $stmt = self::getDb($mountPath)->prepare("SELECT path FROM Paths WHERE mount = :mount ORDER BY priority ASC, rowid ASC");
             $stmt->bindValue(':mount', $mountPath, SQLITE3_TEXT);
             $result = $stmt->execute();
         }
