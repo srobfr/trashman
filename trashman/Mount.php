@@ -44,8 +44,8 @@ class Mount {
      */
     public static function getTrashmanFolderPath($mountPath, $create = false) {
         $path = $mountPath . '/.trashman';
-        if(!file_exists($path) && !is_writeable(dirname($path))
-                || !is_writable($path)) {
+        if(!file_exists($path) && !is_writeable($mountPath)
+                || !is_writeable($path)) {
             $trashmanHomePath = getenv('HOME') . '/.trashman';
             $path = $trashmanHomePath . "/" . Utils::shortHash($mountPath);
 

@@ -52,7 +52,7 @@ class Database
         $stmt->bindValue(':priority', $priority, SQLITE3_INTEGER);
         $ok = $stmt->execute();
 
-        if (!$ok) {
+        if (!$ok || $db->changes() === 0) {
             $stmt = $db->prepare("INSERT INTO Paths (path, mount, priority) VALUES (:path, :mount, :priority)");
             $stmt->bindValue(':path', $path, SQLITE3_TEXT);
             $stmt->bindValue(':mount', $mountPath, SQLITE3_TEXT);
