@@ -71,17 +71,17 @@ class TrashmanCommand extends Command
                         "Affiche ce qui serait fait, sans appliquer les modifications."
                 )
                 ->addOption(
-                        'keep', '-k', InputOption::VALUE_NONE,
-                        "Marque les éléments pour suppression ultérieure, sans les modifier."
+                        'all-mountpoints', '-a', InputOption::VALUE_NONE,
+                        "Combiné à --free, tente de nettoyer tous les points de montage."
                 )
                 ->addOption(
                         'priority', '-p', InputOption::VALUE_OPTIONAL,
-                        "Priorité de la suppression. 1: à supprimer en premier, 10 : a supprimer en dernier.", 5
+                        "Priorité de la suppression :
+                            0: Suppression immédiate.
+                            1: Suppression en priorité
+                            ...
+                            10: Suppression non prioritaire", 5
                 )
-//                ->addOption(
-//                        'list', '-l', InputOption::VALUE_NONE,
-//                        "Affiche les chemins qui peuvent être supprimés, avec la taille totale."
-//                )
                 ->addOption(
                         'free', '-f', InputOption::VALUE_OPTIONAL,
                         "Libère de l'espace disque sur les systèmes de fichiers correspondants aux chemins donnés.
@@ -93,7 +93,7 @@ Les formats possibles sont :
 
     /**
      * Execute la commande
-     * 
+     *
      * @param InputInterface $input
      * @param OutputInterface $output
      */
@@ -101,6 +101,7 @@ Les formats possibles sont :
     {
         $this->in = $input;
         $this->out = $output;
+        Logger::$output = $output;
 
         if($input->getOption('free')) {
             return $this->free();
@@ -121,23 +122,29 @@ Les formats possibles sont :
      * Libère définitivement de l'espace disque
      */
     public function free() {
-        $mountFolders = $this->getMountFolders();
+        $mountPaths = Mount::getMountPaths();
 
         $paths = $this->in->getArgument('paths');
-        if(count($paths) === 0) {
-            $paths = array_keys($this->getMountFolders());
+        if($this->in->getOption("all-mountpoints")) {
+            // Tous les points de montage.
+            $paths = array_keys(Mount::getMountPaths());
+        }
+
+        if (count($paths) === 0) {
+            throw new Exception("Aucun point de montage spécifié.");
         }
 
         foreach($paths as $path) {
-            $mountPath = $this->getMountPath($path);
+            $mountPath = Mount::getMountPath($path);
             // On détermine combien d'espace est demandé.
             $toFree = null;
-            $m = array();
+            $m = null;
+
             if(preg_match('~^(\d+)%$~', $this->in->getOption('free'), $m)) {
-                $used = $mountFolders[$mountPath]['used'];
-                $total = $mountFolders[$mountPath]['total'];
-                $toFree = $this->bcmax('0', bcsub($used, bcdiv(bcmul($total, $m[1]), '100')));
-                
+                $used = $mountPaths[$mountPath]['used'];
+                $total = $mountPaths[$mountPath]['total'];
+                $toFree = Utils::bcmax('0', bcsub($used, bcdiv(bcmul($total, $m[1]), '100')));
+
             } elseif (preg_match('~^(\d+)([KMGT]?)$~', $this->in->getOption('free'), $m)) {
                 $multipl = array('K' => '1024', 'M' => bcpow('1024', '2'), 'G' => bcpow('1024', '3'),
                     'T' => bcpow('1024', '4'));
@@ -149,44 +156,31 @@ Les formats possibles sont :
             } else {
                 throw new Exception("Impossible de déterminer l'espace à récupérer. : " . $this->in->getOption('free'));
             }
-            
-            if(OutputInterface::VERBOSITY_VERBOSE <= $this->out->getVerbosity()) {
-                $this->out->writeln("Point de montage <comment>" . $mountPath . "</comment> : <info>" . $this->humanFilesize($toFree) . "</info> à libérer.");
-            }
 
-            if ($this->bcmax('0', $toFree) === '0') {
+            if (Utils::bcmax('0', $toFree) === '0') {
                 // Rien à libérer sur ce montage.
                 continue;
             }
 
-            // On va trouver les fichiers à supprimer, jusqu'à la taille voulue.
-            $trashmanFolder = preg_replace('~^//~', '/', $this->getTrashmanFolderPath($mountPath));
-            if(file_exists($trashmanFolder)) {
-                $toFree = $this->doDelete($trashmanFolder, $toFree);
-            }
+            Logger::log(Utils::humanFilesize($toFree) . " à libérer sur " . $mountPath);
 
-            if ($this->bcmax('0', $toFree) !== '0') {
-                $this->out->writeln("<fg=red>Impossible de libérer suffisament de place ! (reste :" . $this->humanFilesize($toFree). " à supprimer)</fg=red>");
+            // On commence par le dossier toDelete dans le dossier trashman du montage.
+            $trashmanFolder = Mount::getTrashmanFolderPath($mountPath);
+            $trashmanToDeleteFolder = $trashmanFolder . "/toDelete";
+            $toFree = $this->doDelete($trashmanToDeleteFolder, $toFree);
+
+            while(Utils::bcmax('0', $toFree) !== '0') {
+                $path = Database::getNextPathToDelete($mountPath);
+                if($path === null) {
+                    // Terminé, mais on n'a pas pu récupérer assez de place.
+                    Logger::error("Impossible de récupérer assez de place sur \"" . $mountPath
+                                  . "\" (" . Utils::humanFilesize($toFree) . " manquants).");
+                    break;
+                }
+
+                $toFree = $this->doDelete($path, $toFree);
             }
         }
-    }
-
-    /**
-     *
-     * @return string
-     */
-    private function bcmax()
-    {
-        $args = func_get_args();
-        if (count($args) == 0)
-            return false;
-        $max = $args[0];
-        foreach ($args as $value) {
-            if (bccomp($value, $max) == 1) {
-                $max = $value;
-            }
-        }
-        return $max;
     }
 
     /**
@@ -195,227 +189,118 @@ Les formats possibles sont :
     * @param string $amount
     */
     private function doDelete($path, $amount) {
+        if(!file_exists($path)) {
+            // Chemin inexistant.
+            return $amount;
+        }
+
         $dryRun = $this->in->getOption('dry-run');
+        if (Utils::bcmax('0', $amount) === '0') {
+            // Plus rien à supprimer, on arrête.
+            return $amount;
+        }
 
-        if (preg_match('~.trashmanDelayedRemoval$~', $path)) {
-            // On supprime la cible du lien symbolique
-            $target = trim(file_get_contents($path));
-            if ($target === false || !file_exists($target)) {
-                // Lien cassé, on supprime le lien symbolique.
-                if (!$dryRun && !unlink($path)) {
-                    $this->out->writeln("<fg=red>Impossible de supprimer le fichier $path</fg=red>");
-                }
-            }
+        Logger::log(Utils::humanFilesize($amount) . " " . $path);
 
-            if ($this->bcmax('0', $amount) === '0') {
-                return $amount;
-            }
-
-            if ($target !== false && file_exists($target)) {
-                $amount = $this->doDelete($target, $amount);
-            }
-
-            if (!$dryRun && !unlink($path)) {
-                $this->out->writeln("<fg=red>Impossible de supprimer le fichier $path</fg=red>");
-            }
-
-        } elseif (is_dir($path)) {
-            // On scanne le contenu du dossier
+        if (is_dir($path)) {
+            // On scanne tous les sous-dossiers & fichiers.
             $scan = scandir($path, SCANDIR_SORT_ASCENDING);
-            if (count($scan) === 2) {
-                if (!$dryRun) {
-                    rmdir($path);
-                }
-                return $amount;
-            }
-
-            if ($this->bcmax('0', $amount) === '0') {
-                return $amount;
-            }
-
             foreach ($scan as $subPath) {
                 if (preg_match('~^\.{1,2}$~', $subPath)) {
+                    // Raccourcis "." et ".." => ignorés.
                     continue;
                 }
 
                 $amount = $this->doDelete($path . '/' . $subPath, $amount);
-                if ($this->bcmax('0', $amount) === '0') {
-                    return $amount;
-                }
             }
 
             // Si le dossier est vide après suppression, on le supprime.
-            $scan = scandir($path, SCANDIR_SORT_ASCENDING);
-            if (count($scan) === 2 && !$dryRun && !rmdir($path)) {
-                $this->out->writeln("<fg=red>Impossible de supprimer le dossier $path</fg=red>");
-            }
+            if (count($scan) === 2) {
+                // Dossier vide, on le supprime.
+                if (!$dryRun) {
+                    rmdir($path);
+                }
 
-        } elseif (is_file($path)) {
-            if ($this->bcmax('0', $amount) === '0') {
                 return $amount;
             }
 
-            $this->out->writeln("Encore <fg=green>" . $this->humanFilesize($amount) . "</fg=green> à libérer. Suppression de <fg=yellow>" . $path . "</fg=yellow>");
+        } elseif (is_file($path)) {
             $amount = bcsub($amount, trim(shell_exec("stat -c%s " . escapeshellarg($path))));
-
-            if (!$dryRun && !unlink($path)) {
-                $this->out->writeln("<fg=red>Impossible de supprimer le fichier $path</fg=red>");
+            if (!$dryRun) {
+                unlink($path);
             }
         } else {
-            $this->out->writeln("<fg=red>Type de fichier non géré : $path</fg=red>");
+            Logger::error("Type de fichier non géré : " . $path);
         }
 
         return $amount;
     }
 
     /**
-     * Retourne le chemin vers le dossier de stockage de Trashman, pour chaque montage.
-     * @param string $mountPath
-     * @return string
-     */
-    private function getTrashmanFolderPath($mountPath) {
-        $path = $mountPath . '/.trashman';
-        if(!is_writeable(dirname($path))) {
-            // Pas les permissions pour écrire ici.
-            // On passe en mode dégradé, en stockant ces infos de le dossier home du user.
-            $path = getenv('HOME') . '/.trashman/' . md5($mountPath);
-        }
-
-        return $path;
-    }
-
-    /**
      * Déplace ou marque des fichiers pour suppression ultérieure.
-     * 
+     *
      * @param InputInterface $input
      * @param OutputInterface $output
      */
     public function trash(InputInterface $input, OutputInterface $output) {
         $dryRun = $this->in->getOption('dry-run');
+        $priority = $this->in->getOption('priority');
+        if (!is_numeric($priority)) {
+            throw new Exception("Priorité invalide : " . $priority);
+        }
 
-        $trashManFoldersContent = array();
-        
+        $priority = intval($priority);
+
         foreach($input->getArgument('paths') as $path) {
             if (!file_exists($path)) {
-                throw new Exception("$path n'existe pas.");
+                Logger::error('Le chemin "' . $path . '" n\'existe pas.');
+                continue;
             }
 
             $path = realpath($path);
-            $mountPath = $this->getMountPath($path);
+            Logger::log($path);
+
+            $mountPath = Mount::getMountPath($path);
             if ($mountPath === '/') {
                 $mountPath = '';
             }
 
-            $prio = str_pad($this->in->getOption('priority'), 4, '0', STR_PAD_LEFT);
-            $date = date('Y-m-d_H-i-s.') . str_replace(time() . '.', '', microtime(true));
+            Logger::debug("Mountpoint pour " . $path . " : " . $mountPath);
 
-            $trashmanFolderPath = $this->getTrashmanFolderPath($mountPath);
-            if(!array_key_exists($trashmanFolderPath, $trashManFoldersContent)) {
-                $trashManFoldersContent[$trashmanFolderPath] = shell_exec('find ' .  escapeshellarg($trashmanFolderPath). ' -type f');
-            }
-
-            $trashPath = $this->getTrashmanFolderPath($mountPath) . "/" . $prio . '/' . $date . $path;
-            $trashDirPath = dirname($trashPath);
-
-            // On tente de créer le dossier.
-            if (!$dryRun && !is_dir($trashDirPath) && !mkdir($trashDirPath, 0700, true)) {
-                throw new Exception("Erreur à la création du dossier $trashDirPath");
-            }
-
-            if (!$dryRun && !is_writable($trashDirPath)) {
-                throw new Exception("Permission écriture refusée dans $trashDirPath");
-            }
-
-            if ($this->in->getOption('keep')) {
-                // On crée un lien vers ce fichier, pour suppression ultérieure.
-                $delayedRemovalFile = $trashPath . '.trashmanDelayedRemoval';
-                $reg = "~".preg_quote($path . '.trashmanDelayedRemoval', '~')."$~m";
-                if(!preg_match($reg, $trashManFoldersContent[$trashmanFolderPath])) {
-                    if(!$dryRun) {
-                        file_put_contents($delayedRemovalFile, $path);
-                    }
-
-                    $this->out->writeln("<fg=yellow>$path</fg=yellow> marqué pour suppression avec la priorité <fg=blue>$prio</fg=blue>");
-                } else {
-                    $this->out->writeln("<fg=yellow>$path</fg=yellow> déjà marqué pour suppression.");
-                }
-            } else {
-                // On déplace le fichier.
-                if(!$dryRun && !rename($path, $trashPath)) {
-                    throw new Exception("Impossible de déplacer $path vers $trashDirPath/");
+            if ($priority === 0) {
+                // Suppression immédiate. On déplace le fichier dans le dossier dédié.
+                try {
+                    $toDeleteFolderPath = Mount::getTrashmanFolderPath($mountPath, true) . "/toDelete";
+                } catch(Exception $e) {
+                    // Impossible de traiter ce chemin.
+                    Logger::error($e->getMessage());
+                    continue;
                 }
 
-                $this->out->writeln("<fg=yellow>$path</fg=yellow> déplacé avec la priorité <fg=blue>$prio</fg=blue>");
+                if(!file_exists($toDeleteFolderPath)) {
+                    mkdir($toDeleteFolderPath, 0777, true);
+                }
+
+                $destName = Utils::shortHash($path . microtime(true));
+                $destPath = $toDeleteFolderPath . '/' . $destName;
+                if(!$dryRun) {
+                    rename($path, $destPath);
+                }
+
+                Logger::log($path . ' -> ' . $destPath);
+                continue;
+            }
+
+            // Suppression délayée.
+            try {
+                if(!$dryRun) {
+                    Database::insert($path, $mountPath, $priority);
+                }
+            } catch(Exception $e) {
+                // Impossible de traiter ce chemin.
+                Logger::error($e->getMessage());
+                continue;
             }
         }
     }
-
-    /**
-     * Retourne la liste des racines de montages
-     * 
-     * @return array
-     */
-    public function getMountFolders()
-    {
-        if($this->mountFolders === NULL) {
-            $mountOut = shell_exec("df -B1");
-            preg_match_all('~^(?P<fs>.*?) +(?P<total>\d+) +(?P<used>\d+) +(?P<free>\d+) +(?P<pc>\d+)% +(?P<mount>/.*?)$~m', $mountOut, $m);
-
-            $this->mountFolders = array();
-            foreach($m['mount'] as $i => $mount) {
-                $this->mountFolders[$mount] = array(
-                    'total' => $m['total'][$i],
-                    'used' => $m['used'][$i],
-                    'pc' => $m['pc'][$i],
-                );
-            }
-
-            krsort($this->mountFolders);
-        }
-        
-        return $this->mountFolders;
-    }
-
-    
-    /**
-     * Retourne le dossier de base du montage qui contient le fichier donné.
-     * 
-     * @param string $path
-     * @return string
-     */
-    public function getMountPath($path)
-    {
-        $mountFolders = array_keys($this->getMountFolders());
-
-        if (file_exists($path)) {
-            $path = realpath($path);
-        }
-
-        foreach ($mountFolders as $mountFolder) {
-            $m = $mountFolder;
-            if($m === '/') {
-                $m = '';
-            }
-
-            if (preg_match('~^' . preg_quote($m, '~') . '(/|$)~', $path)) {
-                return $mountFolder;
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * Retourne un entier en valeur lisible.
-     * @param string $bytes
-     * @param integer $decimals
-     * @return string
-     */
-    public function humanFilesize($bytes, $decimals = 2)
-    {
-        $size = array('', 'K', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y');
-        $factor = floor((strlen($bytes) - 1) / 3);
-        return bcdiv($bytes, bcpow('1024', strval($factor)), $decimals) . @$size[$factor];
-    }
-
 }
