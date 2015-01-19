@@ -1,0 +1,29 @@
+## Trashman - a simple delayed files removal utility.
+## Copyright (C) 2014  Simon Robert
+##
+## This program is free software; you can redistribute it and/or
+## modify it under the terms of the GNU General Public License
+## as published by the Free Software Foundation; either version 2
+## of the License, or (at your option) any later version.
+##
+## This program is distributed in the hope that it will be useful,
+## but WITHOUT ANY WARRANTY; without even the implied warranty of
+## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+## GNU General Public License for more details.
+##
+## You should have received a copy of the GNU General Public License
+## along with this program; if not, write to the Free Software
+## Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+---
+
+# Exemple de fichier de configuration.
+# Copiez ce fichier à l'emplacement suivant :
+#    $HOME/.trashman.yml
+# 
+# Puis éditez-le.
+
+# Dossiers de stockage forcés pour les points de montages.
+# La source et la cible doivent être sur le même système de fichiers.
+# Avec bash, utilisez la commande "readlink -f <dossier>" pour connaître le path réel d'un fichier ou dossier.
+forcedTrashmanFolders:
+    "/home": "/home/local/simon.robert/.trashman"

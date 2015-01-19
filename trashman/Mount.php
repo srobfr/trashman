@@ -49,7 +49,7 @@ class Mount {
             $trashmanHomePath = getenv('HOME') . '/.trashman';
             $path = $trashmanHomePath . "/" . Utils::shortHash($mountPath);
 
-            $configFile = $trashmanHomePath . "/config.yml";
+            $configFile = getenv('HOME') . "/.trashman.yml";
             $forcedTrashmanFolders = array();
             if(file_exists($configFile)) {
                 $config = Yaml::parse($configFile);
