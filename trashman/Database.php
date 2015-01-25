@@ -82,6 +82,7 @@ class Database
             $dbPath = Mount::getTrashmanFolderPath($mountPath, true) . "/trashman.db";
             $shouldBeCreated = !file_exists($dbPath);
             $db = new SQLite3($dbPath);
+            $db->busyTimeout(1000);
             if ($shouldBeCreated) {
                 $db->exec("CREATE TABLE Paths (path TEXT, mount TEXT, priority INTEGER)");
                 $db->exec("CREATE INDEX PathsI ON Paths (mount, priority)");
