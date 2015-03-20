@@ -25,5 +25,5 @@
 # Dossiers de stockage forcés pour les points de montages.
 # La source et la cible doivent être sur le même système de fichiers.
 # Avec bash, utilisez la commande "readlink -f <dossier>" pour connaître le path réel d'un fichier ou dossier.
-forcedTrashmanFolders:
-    "/home": "/home/local/simon.robert/.trashman"
+forcedTrashmanFolders: []
+
