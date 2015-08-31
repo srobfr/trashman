@@ -256,6 +256,10 @@ Les formats possibles sont :
         $priority = intval($priority);
 
         foreach($input->getArgument('paths') as $path) {
+            if(preg_match("~^\.{1,2}$~", $path)) {
+                continue;
+            }
+
             if (!file_exists($path)) {
                 Logger::error('Le chemin "' . $path . '" n\'existe pas.');
                 continue;

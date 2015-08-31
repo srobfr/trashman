@@ -112,6 +112,11 @@ class Mount {
         $mountPaths = array_keys(self::getMountPaths());
         if (file_exists($path)) {
             $path = realpath($path);
+        } else {
+            $p = trim(shell_exec("readlink -f " . escapeshellarg($path)));
+            if(!empty($p)) {
+                $path = $p;
+            }
         }
 
         foreach ($mountPaths as $mountPath) {
