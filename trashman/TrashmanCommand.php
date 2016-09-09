@@ -189,7 +189,6 @@ Les formats possibles sont :
     * @param string $amount
     */
     private function doDelete($path, $amount) {
-        $previousAmount = $amount;
         if(@lstat($path) === false) {
             // Chemin inexistant.
             Logger::debug("Chemin inexistant : $path");
@@ -202,6 +201,8 @@ Les formats possibles sont :
             // Plus rien à supprimer, on arrête.
             return $amount;
         }
+
+        Logger::log(Utils::humanFilesize($amount) . " " . $path);
 
         if (is_dir($path)) {
             // On scanne tous les sous-dossiers & fichiers.
@@ -219,8 +220,6 @@ Les formats possibles sont :
             // Si le dossier est vide après suppression, on le supprime.
             $scan = scandir($path, SCANDIR_SORT_ASCENDING);
             if (count($scan) === 2) {
-                Logger::log(Utils::humanFilesize($previousAmount) . " " . $path);
-
                 // Dossier vide, on le supprime.
                 if (!$dryRun) {
                     Logger::debug("Suppression du dossier vide : $path");
@@ -233,7 +232,6 @@ Les formats possibles sont :
 
         } elseif (is_file($path) || is_link($path)) {
             $amount = bcsub($amount, trim(shell_exec("stat -c%s " . escapeshellarg($path))));
-            Logger::log(Utils::humanFilesize($previousAmount) . " " . $path);
 
             if (!$dryRun) {
                 Logger::debug("Suppression du fichier : $path");
