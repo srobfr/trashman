@@ -190,7 +190,7 @@ Les formats possibles sont :
     */
     private function doDelete($path, $amount) {
         $previousAmount = $amount;
-        if(!file_exists($path)) {
+        if(@lstat($path) === false) {
             // Chemin inexistant.
             Logger::debug("Chemin inexistant : $path");
             Database::deletePath($path);
@@ -231,7 +231,7 @@ Les formats possibles sont :
                 return $amount;
             }
 
-        } elseif (is_file($path)) {
+        } elseif (is_file($path) || is_link($path)) {
             $amount = bcsub($amount, trim(shell_exec("stat -c%s " . escapeshellarg($path))));
             Logger::log(Utils::humanFilesize($previousAmount) . " " . $path);
 
