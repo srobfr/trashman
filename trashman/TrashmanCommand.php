@@ -192,6 +192,7 @@ Les formats possibles sont :
         $previousAmount = $amount;
         if(!file_exists($path)) {
             // Chemin inexistant.
+            Database::deletePath($path);
             return $amount;
         }
 
@@ -221,6 +222,7 @@ Les formats possibles sont :
                 // Dossier vide, on le supprime.
                 if (!$dryRun) {
                     rmdir($path);
+                    Database::deletePath($path);
                 }
 
                 return $amount;
@@ -232,9 +234,13 @@ Les formats possibles sont :
 
             if (!$dryRun) {
                 unlink($path);
+                Database::deletePath($path);
             }
         } else {
             Logger::error("Type de fichier non géré : " . $path);
+            if (!$dryRun) {
+                Database::deletePath($path);
+            }
         }
 
         return $amount;

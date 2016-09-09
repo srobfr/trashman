@@ -121,4 +121,15 @@ class Database
 
         return $array["path"];
     }
+
+    /**
+     * Supprime un chemin de la base.
+     * @staticvar SQLite3Result $result
+     * @return string
+     */
+    public static function deletePath($path) {
+        $stmt = self::getDb($path)->prepare("DELETE FROM Paths WHERE path = :path");
+        $stmt->bindValue(':path', $path, SQLITE3_TEXT);
+        $stmt->execute();
+    }
 }
