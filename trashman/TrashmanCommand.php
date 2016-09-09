@@ -192,6 +192,7 @@ Les formats possibles sont :
         $previousAmount = $amount;
         if(!file_exists($path)) {
             // Chemin inexistant.
+            Logger::debug("Chemin inexistant : $path");
             Database::deletePath($path);
             return $amount;
         }
@@ -204,6 +205,7 @@ Les formats possibles sont :
 
         if (is_dir($path)) {
             // On scanne tous les sous-dossiers & fichiers.
+            Logger::debug("$path est un dossier.");
             $scan = scandir($path, SCANDIR_SORT_ASCENDING);
             foreach ($scan as $subPath) {
                 if (preg_match('~^\.{1,2}$~', $subPath)) {
@@ -221,6 +223,7 @@ Les formats possibles sont :
 
                 // Dossier vide, on le supprime.
                 if (!$dryRun) {
+                    Logger::debug("Suppression du dossier vide : $path");
                     rmdir($path);
                     Database::deletePath($path);
                 }
@@ -233,6 +236,7 @@ Les formats possibles sont :
             Logger::log(Utils::humanFilesize($previousAmount) . " " . $path);
 
             if (!$dryRun) {
+                Logger::debug("Suppression du fichier : $path");
                 unlink($path);
                 Database::deletePath($path);
             }
