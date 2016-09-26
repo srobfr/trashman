@@ -277,10 +277,6 @@ Les formats possibles sont :
             Logger::log($path);
 
             $mountPath = Mount::getMountPath($path);
-            if ($mountPath === '/') {
-                $mountPath = '';
-            }
-
             Logger::debug("Mountpoint pour " . $path . " : " . $mountPath);
 
             if ($priority === 0) {

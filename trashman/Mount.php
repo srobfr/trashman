@@ -43,9 +43,8 @@ class Mount {
      * @return string
      */
     public static function getTrashmanFolderPath($mountPath, $create = false) {
-        $path = $mountPath . '/.trashman';
-        if(!file_exists($path) && !is_writeable($mountPath)
-                || file_exists($path) && !is_writeable($path)) {
+        $path = preg_replace('~/+~', '/', $mountPath . '/.trashman');
+        if(!is_writeable($path)) {
             $trashmanHomePath = getenv('HOME') . '/.trashman';
             $path = $trashmanHomePath . "/" . Utils::shortHash($mountPath);
 
@@ -109,27 +108,6 @@ class Mount {
      */
     public static function getMountPath($path)
     {
-        $mountPaths = array_keys(self::getMountPaths());
-        if (file_exists($path)) {
-            $path = realpath($path);
-        } else {
-            $p = trim(shell_exec("readlink -f " . escapeshellarg($path)));
-            if(!empty($p)) {
-                $path = $p;
-            }
-        }
-
-        foreach ($mountPaths as $mountPath) {
-            $m = $mountPath;
-            if($m === '/') {
-                $m = '';
-            }
-
-            if (preg_match('~^' . preg_quote($m, '~') . '(/|$)~', $path)) {
-                return $mountPath;
-            }
-        }
-
-        return null;
+        return trim(shell_exec("stat -c '%m' " . escapeshellarg($path)));
     }
 }
